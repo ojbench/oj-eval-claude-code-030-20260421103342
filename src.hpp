@@ -3,13 +3,12 @@
 #include <queue>
 #include <cmath>
 #include <algorithm>
-#include <cstdint>
 
 // Problem requires:
-// typedef std::vector<std::vector<double>> IMAGE_T;
+// typedef std::vector<std::vector<double> > IMAGE_T;
 // int judge(IMAGE_T &img);
 
-typedef std::vector<std::vector<double>> IMAGE_T;
+typedef std::vector<std::vector<double> > IMAGE_T;
 
 namespace _nr_internal {
     static inline int clampi(int v, int lo, int hi){ return v < lo ? lo : (v > hi ? hi : v); }
@@ -48,23 +47,24 @@ namespace _nr_internal {
             if (w0 <= 1e-9 || w1 <= 1e-9) continue;
             double mu0 = mu[t] / w0;
             double mu1 = (muT - mu[t]) / w1;
-            double sigma_b = w0 * w1 * (mu0 - mu1) * (mu0 - mu1);
+            double diff = (mu0 - mu1);
+            double sigma_b = w0 * w1 * diff * diff;
             if (sigma_b > max_sigma){ max_sigma = sigma_b; best_t = t; }
         }
         return (double)best_t / (double)(bins-1);
     }
 
-    static inline void binarize(const IMAGE_T &img, std::vector<std::vector<uint8_t>> &bin){
+    static inline void binarize(const IMAGE_T &img, std::vector< std::vector<unsigned char> > &bin){
         const int H = (int)img.size();
         const int W = H ? (int)img[0].size() : 0;
-        bin.assign(H, std::vector<uint8_t>(W, 0));
+        bin.assign(H, std::vector<unsigned char>(W, 0));
         if (H == 0 || W == 0) return;
         double T = otsu_threshold(img);
         // Ensure foreground is white (value 1). According to problem, digits are white, background black.
         for(int y=0;y<H;y++){
             for(int x=0;x<W;x++){
                 double v = img[y][x];
-                bin[y][x] = (uint8_t)((v >= T) ? 1 : 0);
+                bin[y][x] = (unsigned char)((v >= T) ? 1 : 0);
             }
         }
         // If foreground seems too sparse or too dense, adjust threshold slightly
@@ -78,19 +78,22 @@ namespace _nr_internal {
             double mean = (H*W) ? sum/(H*W) : 0.5;
             for(int y=0;y<H;y++){
                 for(int x=0;x<W;x++){
-                    bin[y][x] = (uint8_t)((img[y][x] >= mean) ? 1 : 0);
+                    bin[y][x] = (unsigned char)((img[y][x] >= mean) ? 1 : 0);
                 }
             }
         }
     }
 
-    struct BBox{ int x0, y0, x1, y1; // inclusive bounds
+    struct BBox{
+        int x0, y0, x1, y1; // inclusive bounds
+        BBox(): x0(0), y0(0), x1(-1), y1(-1) {}
+        BBox(int _x0,int _y0,int _x1,int _y1): x0(_x0), y0(_y0), x1(_x1), y1(_y1) {}
         int width() const { return x1 - x0 + 1; }
         int height() const { return y1 - y0 + 1; }
         bool valid() const { return x0 <= x1 && y0 <= y1; }
     };
 
-    static inline BBox bounding_box(const std::vector<std::vector<uint8_t>> &bin){
+    static inline BBox bounding_box(const std::vector< std::vector<unsigned char> > &bin){
         const int H = (int)bin.size();
         const int W = H ? (int)bin[0].size() : 0;
         int x0=W, y0=H, x1=-1, y1=-1;
@@ -102,31 +105,31 @@ namespace _nr_internal {
                 if (y > y1) y1 = y;
             }
         }
-        if (x1 < x0 || y1 < y0) return {0,0,-1,-1};
-        return {x0,y0,x1,y1};
+        if (x1 < x0 || y1 < y0) return BBox(0,0,-1,-1);
+        return BBox(x0,y0,x1,y1);
     }
 
-    static inline int count_holes(const std::vector<std::vector<uint8_t>> &bin, const BBox &b){
+    static inline int count_holes(const std::vector< std::vector<unsigned char> > &bin, const BBox &b){
         if (!b.valid()) return 0;
         int W = (int)bin[0].size();
         int H = (int)bin.size();
-        std::vector<std::vector<uint8_t>> vis(H, std::vector<uint8_t>(W, 0));
-        auto inside = [&](int x,int y){ return y>=b.y0 && y<=b.y1 && x>=b.x0 && x<=b.x1; };
+        std::vector< std::vector<unsigned char> > vis(H, std::vector<unsigned char>(W, 0));
         int holes = 0;
         for(int y=b.y0;y<=b.y1;y++){
             for(int x=b.x0;x<=b.x1;x++){
                 if (bin[y][x] == 0 && !vis[y][x]){
-                    std::queue<std::pair<int,int>> q; q.push({x,y}); vis[y][x]=1;
+                    std::queue< std::pair<int,int> > q; q.push(std::make_pair(x,y)); vis[y][x]=1;
                     bool touchBorder = (x==b.x0||x==b.x1||y==b.y0||y==b.y1);
                     while(!q.empty()){
-                        auto [cx,cy]=q.front(); q.pop();
+                        std::pair<int,int> p = q.front(); q.pop();
+                        int cx = p.first, cy = p.second;
                         static const int dx[4]={1,-1,0,0};
                         static const int dy[4]={0,0,1,-1};
                         for(int k=0;k<4;k++){
                             int nx=cx+dx[k], ny=cy+dy[k];
-                            if (!inside(nx,ny)) continue;
+                            if (!(ny>=b.y0 && ny<=b.y1 && nx>=b.x0 && nx<=b.x1)) continue;
                             if (!vis[ny][nx] && bin[ny][nx]==0){
-                                vis[ny][nx]=1; q.push({nx,ny});
+                                vis[ny][nx]=1; q.push(std::make_pair(nx,ny));
                                 if (nx==b.x0||nx==b.x1||ny==b.y0||ny==b.y1) touchBorder = true;
                             }
                         }
@@ -139,22 +142,25 @@ namespace _nr_internal {
     }
 
     struct Feat{
-        double fg_ratio{}; // foreground / bbox area
-        double top_ratio{}, bottom_ratio{};
-        double left_ratio{}, right_ratio{};
-        double mid_row_ratio{}, top_band_ratio{}, bottom_band_ratio{};
-        double qUL{}, qUR{}, qLL{}, qLR{};
-        double cx{}, cy{}; // center of mass normalized [0,1] within bbox
-        int col_transitions{}; // transitions along center column
-        int row_transitions{}; // transitions along center row
-        int width{}, height{};
-        int holes{};
+        double fg_ratio; // foreground / bbox area
+        double top_ratio, bottom_ratio;
+        double left_ratio, right_ratio;
+        double mid_row_ratio, top_band_ratio, bottom_band_ratio;
+        double qUL, qUR, qLL, qLR;
+        double cx, cy; // center of mass normalized [0,1] within bbox
+        int col_transitions; // transitions along center column
+        int row_transitions; // transitions along center row
+        int width, height;
+        int holes;
+        Feat(): fg_ratio(0), top_ratio(0), bottom_ratio(0), left_ratio(0), right_ratio(0),
+                mid_row_ratio(0), top_band_ratio(0), bottom_band_ratio(0),
+                qUL(0), qUR(0), qLL(0), qLR(0), cx(0.5), cy(0.5),
+                col_transitions(0), row_transitions(0), width(0), height(0), holes(0) {}
     };
 
-    static inline Feat extract_features(const std::vector<std::vector<uint8_t>> &bin, const BBox &b){
+    static inline Feat extract_features(const std::vector< std::vector<unsigned char> > &bin, const BBox &b){
         Feat f; f.width = b.width(); f.height = b.height();
         if (!b.valid()) return f;
-        const int W = (int)bin[0].size(); (void)W;
         int area = f.width * f.height;
         int fg=0;
         int top=0,bottom=0,left=0,right=0;
@@ -209,12 +215,11 @@ namespace _nr_internal {
         return f;
     }
 
-    static inline int classify(const std::vector<std::vector<uint8_t>> &bin){
+    static inline int classify(const std::vector< std::vector<unsigned char> > &bin){
         // Compute bbox and features
         BBox b = bounding_box(bin);
         if (!b.valid()) return 0; // fallback
         Feat f = extract_features(bin, b);
-        Feat f2 = f; // in case we want to adjust
         // Count holes
         int holes = count_holes(bin, b);
         f.holes = holes;
@@ -270,7 +275,7 @@ namespace _nr_internal {
 
 int judge(IMAGE_T &img){
     // Binarize
-    std::vector<std::vector<uint8_t>> bin;
+    std::vector< std::vector<unsigned char> > bin;
     _nr_internal::binarize(img, bin);
     // Classify
     int pred = _nr_internal::classify(bin);
